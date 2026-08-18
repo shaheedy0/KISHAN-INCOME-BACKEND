@@ -26,16 +26,26 @@ app.get('/api/config/public', async (req, res) => {
     }
 });
 
-// 2. Allow Admin to change the background photo URL
 app.post('/api/admin/config/background', async (req, res) => {
     const { new_bg_url } = req.body;
     try {
+        // Automatically create table if missing
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS site_settings (
+                setting_key VARCHAR(50) PRIMARY KEY,
+                setting_value TEXT
+            )
+        `);
+
+        // Insert or update the background URL
         await db.query(
             "INSERT INTO site_settings (setting_key, setting_value) VALUES ('bg_image_url', ?) ON DUPLICATE KEY UPDATE setting_value = ?",
             [new_bg_url, new_bg_url]
         );
+
         res.json({ message: "Background image successfully updated!" });
     } catch (err) {
+        console.error("Database error:", err);
         res.status(500).json({ error: "Failed to update background image" });
     }
 });
