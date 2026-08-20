@@ -15,6 +15,20 @@ app.use(express.json());
 // 4. Automated robot
 require('./cron'); 
 
+// Admin PIN Verification Route
+app.post('/api/admin/verify-pin', (req, res) => {
+    const { admin_pin } = req.body;
+    
+    // Set your desired admin password here
+    const MY_SECRET_PASSWORD = "admin123"; 
+
+    if (admin_pin === MY_SECRET_PASSWORD) {
+        return res.status(200).json({ message: "Access Granted" });
+    } else {
+        return res.status(401).json({ message: "Invalid Admin Password!" });
+    }
+});
+
 // 5. MAIN API ROUTES
 app.use('/api/auth', require('./auth'));
 app.use('/api/user', require('./protected'));
