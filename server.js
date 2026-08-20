@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors'); // CORS tool
 require('dotenv').config(); 
 
-const db = require('./db'); 
+const pool = require('./db'); 
 
 // 2. Start the Express application
 const app = express();
@@ -38,7 +38,7 @@ app.get('/api/admin/stats', (req, res) => {
     // Assuming your database connection is named 'db'. Change it if you use 'pool' or something else.
     const query = `SELECT COUNT(*) as total_users, SUM(total_deposits) as total_deposits FROM users`;
     
-    db.query(query, (err, results) => {
+    pool.query(query, (err, results) => {
         if (err) return res.status(500).json({ message: "Database error fetching stats." });
         
         const stats = results[0] || {};
@@ -54,7 +54,7 @@ app.get('/api/admin/stats', (req, res) => {
 app.get('/api/admin/members/all', (req, res) => {
     const query = `SELECT id, phone_number, full_names, wallet_balance, total_deposits as total_invested, created_at FROM users ORDER BY created_at DESC`;
     
-    db.query(query, (err, results) => {
+    pool.query(query, (err, results) => {
         if (err) return res.status(500).json({ message: "Database error fetching members." });
         res.status(200).json({ members: results });
     });
@@ -70,7 +70,7 @@ app.post('/api/admin/balance/adjust', (req, res) => {
 
     const query = `UPDATE users SET wallet_balance = wallet_balance + ? WHERE phone_number = ?`;
     
-    db.query(query, [Number(amount), phone_number], (err, result) => {
+    pool.query(query, [Number(amount), phone_number], (err, result) => {
         if (err) return res.status(500).json({ message: "Database error updating balance." });
         
         if (result.affectedRows === 0) {
