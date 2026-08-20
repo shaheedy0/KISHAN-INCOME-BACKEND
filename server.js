@@ -20,7 +20,7 @@ app.post('/api/admin/verify-pin', (req, res) => {
     const { admin_pin } = req.body;
     
     // Set your desired admin password here
-    const MY_SECRET_PASSWORD = "admin123"; 
+    const MY_SECRET_PASSWORD = "SYusufK01."; 
 
     if (admin_pin === MY_SECRET_PASSWORD) {
         return res.status(200).json({ message: "Access Granted" });
