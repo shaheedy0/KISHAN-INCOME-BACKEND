@@ -28,57 +28,60 @@ app.post('/api/admin/verify-pin', (req, res) => {
         return res.status(401).json({ message: "Invalid Admin Password!" });
     }
 });
-
 // ==========================================
 //          ADMIN DATA ROUTES
 // ==========================================
 
 // 1. Get Admin Statistics
-app.get('/api/admin/stats', (req, res) => {
-    // Assuming your database connection is named 'db'. Change it if you use 'pool' or something else.
-    const query = `SELECT COUNT(*) as total_users, SUM(total_deposits) as total_deposits FROM users`;
-    
-    pool.query(query, (err, results) => {
-        if (err) return res.status(500).json({ message: "Database error fetching stats." });
-        
+app.get('/api/admin/stats', async (req, res) => {
+    try {
+        const [results] = await pool.query(`SELECT COUNT(*) as total_users FROM users`);
         const stats = results[0] || {};
         res.status(200).json({
             total_users: stats.total_users || 0,
-            total_deposits: stats.total_deposits || 0,
-            pending_withdrawals: [] // We can set up the actual withdrawals table later
+            total_deposits: 0,
+            pending_withdrawals: []
         });
-    });
+    } catch (err) {
+        console.error("Stats Error:", err);
+        res.status(500).json({ message: "Database error fetching stats." });
+    }
 });
 
 // 2. Get All Members Directory
-app.get('/api/admin/members/all', (req, res) => {
-    const query = `SELECT id, phone_number, full_names, wallet_balance, total_deposits as total_invested, created_at FROM users ORDER BY created_at DESC`;
-    
-    pool.query(query, (err, results) => {
-        if (err) return res.status(500).json({ message: "Database error fetching members." });
-        res.status(200).json({ members: results });
-    });
+app.get('/api/admin/members/all', async (req, res) => {
+    try {
+        const [results] = await pool.query(`SELECT * FROM users ORDER BY id DESC`);
+        res.status(200).json({ members: results || [] });
+    } catch (err) {
+        console.error("Members Error:", err);
+        res.status(500).json({ message: "Database error fetching members." });
+    }
 });
 
 // 3. Manual Balance Adjustment
-app.post('/api/admin/balance/adjust', (req, res) => {
+app.post('/api/admin/balance/adjust', async (req, res) => {
     const { phone_number, amount } = req.body;
     
     if (!phone_number || amount === undefined) {
         return res.status(400).json({ message: "Phone number and amount are required." });
     }
 
-    const query = `UPDATE users SET wallet_balance = wallet_balance + ? WHERE phone_number = ?`;
-    
-    pool.query(query, [Number(amount), phone_number], (err, result) => {
-        if (err) return res.status(500).json({ message: "Database error updating balance." });
+    try {
+        const [result] = await pool.query(
+            `UPDATE users SET wallet_balance = wallet_balance + ? WHERE phone_number = ?`,
+            [Number(amount), phone_number]
+        );
         
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: "User not found!" });
         }
         
-        res.status(200).json({ message: `Successfully added ${amount} UGX to ${phone_number}` });
-    });
+        res.status(200).json({ message: `Successfully updated balance for ${phone_number}` });
+    } catch (err) {
+        console.error("Balance Adjustment Error:", err);
+        res.status(500).json({ message: "Database error updating balance." });
+    }
 });
 
 // 5. MAIN API ROUTES
