@@ -84,6 +84,59 @@ app.post('/api/admin/balance/adjust', async (req, res) => {
     }
 });
 
+// ==========================================
+//        ADMIN WITHDRAWAL MANAGEMENT
+// ==========================================
+
+// Fetch all pending withdrawal requests
+app.get('/api/admin/withdrawals/pending', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT w.id, w.amount, w.status, w.created_at, u.phone_number, u.full_names 
+             FROM withdrawals w 
+             JOIN users u ON w.user_id = u.id 
+             WHERE w.status = 'pending' 
+             ORDER BY w.created_at ASC`
+        );
+        res.status(200).json({ withdrawals: rows });
+    } catch (err) {
+        console.error("Pending Withdrawals Error:", err);
+        res.status(500).json({ message: "Database error fetching withdrawals." });
+    }
+});
+
+// Approve or Reject a Withdrawal
+app.post('/api/admin/withdrawals/action', async (req, res) => {
+    const { withdrawal_id, action } = req.body; // action: 'approve' or 'reject'
+
+    if (!withdrawal_id || !['approve', 'reject'].includes(action)) {
+        return res.status(400).json({ message: "Invalid withdrawal ID or action." });
+    }
+
+    try {
+        const [rows] = await pool.query(`SELECT user_id, amount, status FROM withdrawals WHERE id = ?`, [withdrawal_id]);
+        if (rows.length === 0) return res.status(404).json({ message: "Withdrawal request not found." });
+
+        const request = rows[0];
+        if (request.status !== 'pending') {
+            return res.status(400).json({ message: "This request has already been processed." });
+        }
+
+        if (action === 'approve') {
+            await pool.query(`UPDATE withdrawals SET status = 'approved' WHERE id = ?`, [withdrawal_id]);
+        } else if (action === 'reject') {
+            // Refund the deducted amount back to user's wallet
+            await pool.query(`UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?`, [request.amount, request.user_id]);
+            await pool.query(`UPDATE withdrawals SET status = 'rejected' WHERE id = ?`, [withdrawal_id]);
+        }
+
+        res.status(200).json({ message: `Withdrawal successfully ${action}d.` });
+    } catch (err) {
+        console.error("Withdrawal Action Error:", err);
+        res.status(500).json({ message: "Database error processing withdrawal." });
+    }
+});
+
 // 5. MAIN API ROUTES
 app.use('/api/auth', require('./auth'));
 app.use('/api/user', require('./protected'));
