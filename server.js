@@ -137,6 +137,48 @@ app.post('/api/admin/withdrawals/action', async (req, res) => {
     }
 });
 
+// 1. PUBLIC: Get All Active Investment Plans
+app.get('/api/investments/plans', async (req, res) => {
+    try {
+        const [plans] = await db.query("SELECT * FROM investment_plans ORDER BY id DESC");
+        res.json({ plans });
+    } catch (err) {
+        res.status(500).json({ message: "Error fetching investment plans." });
+    }
+});
+
+// 2. ADMIN: Create a New Investment Plan
+app.post('/api/admin/investments/create', verifyToken, async (req, res) => {
+    // Optional check: ensure user is admin if you have an admin verification middleware/column
+    const { title, min_amount, max_amount, daily_return_pct, duration_days, max_purchases, image_url } = req.body;
+
+    if (!title || !min_amount || !daily_return_pct || !duration_days) {
+        return res.status(400).json({ message: "Please fill in all mandatory fields (Title, Min Amount, Rate, Duration)." });
+    }
+
+    try {
+        await db.query(
+            `INSERT INTO investment_plans (title, min_amount, max_amount, daily_return_pct, duration_days, max_purchases, image_url) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [title, min_amount, max_amount || null, daily_return_pct, duration_days, max_purchases || 1, image_url || null]
+        );
+        res.json({ message: "Investment plan created successfully!" });
+    } catch (err) {
+        res.status(500).json({ message: "Server error creating plan." });
+    }
+});
+
+// 3. ADMIN: Delete an Investment Plan
+app.delete('/api/admin/investments/:id', verifyToken, async (req, res) => {
+    const planId = req.params.id;
+    try {
+        await db.query("DELETE FROM investment_plans WHERE id = ?", [planId]);
+        res.json({ message: "Investment plan removed successfully." });
+    } catch (err) {
+        res.status(500).json({ message: "Error deleting investment plan." });
+    }
+});
+
 // 5. MAIN API ROUTES
 app.use('/api/auth', require('./auth'));
 app.use('/api/user', require('./protected'));
@@ -180,6 +222,115 @@ app.post('/api/admin/config/background', async (req, res) => {
     } catch (err) {
         console.error("Database error:", err);
         res.status(500).json({ error: "Failed to update background image" });
+    }
+});
+
+// --- 1. GET ALL INVESTMENT PLANS (User view) ---
+app.get('/api/plans', verifyToken, async (req, res) => {
+    try {
+        const [plans] = await db.query('SELECT * FROM investment_plans ORDER BY price ASC');
+        res.json(plans);
+    } catch (err) {
+        res.status(500).json({ message: 'Error loading investment plans.' });
+    }
+});
+
+// --- 2. PROCESS PLAN PURCHASE (Deduct wallet & save investment) ---
+app.post('/api/plans/invest', verifyToken, async (req, res) => {
+    const { planId } = req.body;
+    const userId = req.user.id;
+
+    try {
+        const [plans] = await db.query('SELECT * FROM investment_plans WHERE id = ?', [planId]);
+        if (plans.length === 0) {
+            return res.status(400).json({ message: 'Investment plan not found.' });
+        }
+        const plan = plans[0];
+
+        const [users] = await db.query('SELECT wallet_balance FROM users WHERE id = ?', [userId]);
+        const user = users[0];
+
+        if (user.wallet_balance < plan.price) {
+            return res.status(400).json({ message: 'Insufficient wallet balance. Please deposit funds.' });
+        }
+
+        // Deduct price from user wallet
+        await db.query(
+            'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?', 
+            [plan.price, userId]
+        );
+
+        // Record the investment
+        await db.query(
+            'INSERT INTO user_investments (user_id, plan_id, amount, daily_return, duration_days, days_remaining) VALUES (?, ?, ?, ?, ?, ?)',
+            [userId, plan.id, plan.price, plan.daily_return, plan.duration_days, plan.duration_days]
+        );
+
+        res.json({ message: 'Investment plan activated successfully!' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error processing investment.' });
+    }
+});
+
+// --- 3. FETCH USER'S ACTIVE INVESTMENTS ---
+app.get('/api/user/investments', verifyToken, async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const [investments] = await db.query(`
+            SELECT ui.*, ip.name 
+            FROM user_investments ui 
+            JOIN investment_plans ip ON ui.plan_id = ip.id 
+            WHERE ui.user_id = ? 
+            ORDER BY ui.created_at DESC
+        `, [userId]);
+        
+        res.json(investments);
+    } catch (err) {
+        res.status(500).json({ message: 'Error fetching user investments.' });
+    }
+});
+
+// --- 4. ADMIN: CREATE A NEW INVESTMENT PLAN ---
+app.post('/api/admin/plans', verifyToken, verifyAdmin, async (req, res) => {
+    const { name, price, daily_return, duration_days } = req.body;
+    try {
+        await db.query(
+            'INSERT INTO investment_plans (name, price, daily_return, duration_days) VALUES (?, ?, ?, ?)',
+            [name, price, daily_return, duration_days]
+        );
+        res.json({ message: 'Plan created successfully!' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error creating plan.' });
+    }
+});
+
+// --- 5. ADMIN: UPDATE AN EXISTING INVESTMENT PLAN ---
+app.put('/api/admin/plans/:id', verifyToken, verifyAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { name, price, daily_return, duration_days } = req.body;
+    try {
+        await db.query(
+            'UPDATE investment_plans SET name = ?, price = ?, daily_return = ?, duration_days = ? WHERE id = ?',
+            [name, price, daily_return, duration_days, id]
+        );
+        res.json({ message: 'Plan updated successfully!' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error updating plan.' });
+    }
+});
+
+// --- 6. ADMIN: DELETE AN INVESTMENT PLAN ---
+app.delete('/api/admin/plans/:id', verifyToken, verifyAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.query('DELETE FROM investment_plans WHERE id = ?', [id]);
+        res.json({ message: 'Plan deleted successfully!' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error deleting plan.' });
     }
 });
 
